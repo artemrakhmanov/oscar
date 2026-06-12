@@ -71,4 +71,15 @@ export const scoutVerdictSchema = z.object({
   contradicts: z.array(z.string()),
 });
 
+export const clarifyQuestionsSchema = z.object({
+  questions: z.array(
+    z.object({
+      id: z.string().min(1),
+      itemId: z.string().min(1),
+      question: z.string().min(1),
+      options: z.array(z.string().min(1)).min(2).max(4),
+    }),
+  ),
+});
+
 export type AnalysisPayload = z.infer<typeof analysisSchema>;

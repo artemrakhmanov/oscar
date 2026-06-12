@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
 import { MiniSelect } from "@/components/custom/mini-select";
 import { Notch, type NotchItem } from "@/components/custom/notch";
 import { Button } from "@/components/ui/button";
 import { useObservability } from "@/lib/observability/context";
-import { replayMockRun } from "@/lib/observability/mock-events";
 import {
   EFFORT_OPTIONS,
   MODEL_OPTIONS,
@@ -23,20 +22,22 @@ const ACCENT = "#3b82f6";
 type GitSelectId = "repo" | "branch";
 
 export function Composer({
+  value,
+  onValueChange,
   onSend,
-  onTextChange,
 }: {
+  /** Controlled text — the workspace owns it so OSCAR can append to it. */
+  value: string;
+  /** Fires on every keystroke (and paste) — feeds the OSCAR harness. */
+  onValueChange: (text: string, opts?: { isPaste?: boolean }) => void;
   onSend: (text: string) => void;
-  /** Streams every keystroke (and paste) into the OSCAR harness. */
-  onTextChange?: (text: string, opts?: { isPaste?: boolean }) => void;
 }) {
   const { pushEvent } = useObservability();
-  const [text, setText] = useState("");
+  const text = value;
   const pasteRef = useRef(false);
 
   const updateText = (next: string) => {
-    setText(next);
-    onTextChange?.(next, { isPaste: pasteRef.current });
+    onValueChange(next, { isPaste: pasteRef.current });
     pasteRef.current = false;
   };
 
@@ -47,9 +48,6 @@ export function Composer({
   const [repoId, setRepoId] = useState<string>(REPOS[0].id);
   const [branch, setBranch] = useState<string>(REPOS[0].defaultBranch);
   const [gitOpen, setGitOpen] = useState<GitSelectId | null>(null);
-
-  const cancelRunRef = useRef<(() => void) | null>(null);
-  useEffect(() => () => cancelRunRef.current?.(), []);
 
   const repo = REPOS.find((r) => r.id === repoId) ?? REPOS[0];
 
@@ -87,13 +85,6 @@ export function Composer({
       source: "composer",
       label: "prompt dispatched",
       detail: `${model} · mode=${mode} · thinking=${effort} · ${repo.label}@${branch}`,
-    });
-    cancelRunRef.current?.();
-    cancelRunRef.current = replayMockRun(pushEvent, {
-      model,
-      mode,
-      repo: repo.label,
-      branch,
     });
   };
 

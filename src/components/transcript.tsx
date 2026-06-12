@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { AboutOverlay } from "@/components/about-overlay";
 import { cn } from "@/lib/utils";
 import type { TranscriptMessage } from "@/lib/mock-data";
 
@@ -24,6 +25,7 @@ const MESSAGE_VARIANTS = {
 
 export function Transcript({ messages }: { messages: TranscriptMessage[] }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length]);
@@ -39,8 +41,16 @@ export function Transcript({ messages }: { messages: TranscriptMessage[] }) {
         >
           <p className="font-mono text-[10px] tracking-wide text-zinc-400">
             starts working before you hit send
+            <button
+              type="button"
+              onClick={() => setAboutOpen(true)}
+              className="cursor-pointer text-zinc-400 transition-colors hover:text-zinc-600"
+            >
+              , <span className="underline underline-offset-2">learn more</span>
+            </button>
           </p>
         </motion.div>
+        <AboutOverlay open={aboutOpen} onClose={() => setAboutOpen(false)} />
       </div>
     );
   }

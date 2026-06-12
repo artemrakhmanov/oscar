@@ -110,6 +110,32 @@ Answer with JSON:
 
 Bias: "wait" is cheap and reversible; "full" is expensive — reserve it for edits that change the objective itself.`;
 
+// ---------------------------------------------------------------------------
+// Clarify
+// ---------------------------------------------------------------------------
+
+export const CLARIFY_SYSTEM = `You turn open points in a prompt-analysis ledger into clarifying questions the user can answer in one click. The user is writing a prompt for a coding agent; each ledger item below is an ambiguity, risk, or constraint that needs their decision before sending.
+
+Rules:
+- At most one question per ledger item, max 4 questions total. Pick the items where the user's answer most changes what the agent would do.
+- Each question is one tight sentence ending in "?", addressed to the user about THEIR intent — never about implementation trivia the agent can decide alone.
+- "options" are 2–4 concrete, mutually exclusive answers, each a short noun phrase the user could have typed ("X-Api-Key header", "query param"), not sentences. Cover the plausible interpretations; the UI adds a free-form field automatically.
+- Set "itemId" to the ledger item the question resolves, and "id" to q1, q2, …
+- Questions must be answerable without seeing any code.`;
+
+export function buildClarifyPrompt(input: {
+  prompt: string;
+  items: { id: string; dimension: string; summary: string; severity: string; evidence: string }[];
+}): string {
+  const items = input.items
+    .map(
+      (i) =>
+        `${i.id} [${i.dimension}, ${i.severity}] ${i.summary} (evidence: "${i.evidence}")`,
+    )
+    .join("\n");
+  return `The user's prompt:\n"""\n${input.prompt}\n"""\n\nOpen points needing the user's decision:\n${items}`;
+}
+
 export function buildScoutPrompt(req: ScoutRequest): string {
   return `Ledger digest:\n${renderLedgerDigest(req.ledger)}\n\nEdit class: ${req.diff.editClass}\nChanged window (with context):\n"""\n${req.window}\n"""\nRemoved text: ${req.diff.removed ? `"${req.diff.removed}"` : "(none)"}\nCharacters since last full analysis: ${req.charsSinceAnalysis}`;
 }

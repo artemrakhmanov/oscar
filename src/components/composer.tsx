@@ -22,9 +22,23 @@ const ACCENT = "#3b82f6";
 
 type GitSelectId = "repo" | "branch";
 
-export function Composer({ onSend }: { onSend: (text: string) => void }) {
+export function Composer({
+  onSend,
+  onTextChange,
+}: {
+  onSend: (text: string) => void;
+  /** Streams every keystroke (and paste) into the OSCAR harness. */
+  onTextChange?: (text: string, opts?: { isPaste?: boolean }) => void;
+}) {
   const { pushEvent } = useObservability();
   const [text, setText] = useState("");
+  const pasteRef = useRef(false);
+
+  const updateText = (next: string) => {
+    setText(next);
+    onTextChange?.(next, { isPaste: pasteRef.current });
+    pasteRef.current = false;
+  };
 
   const [model, setModel] = useState<string>("gpt-5.1-codex");
   const [mode, setMode] = useState<string>("code");
@@ -67,7 +81,7 @@ export function Composer({ onSend }: { onSend: (text: string) => void }) {
     const trimmed = text.trim();
     if (!trimmed) return;
     onSend(trimmed);
-    setText("");
+    updateText("");
     pushEvent({
       kind: "system",
       source: "composer",
@@ -93,7 +107,10 @@ export function Composer({ onSend }: { onSend: (text: string) => void }) {
       <div className="relative z-10 rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_30px_-12px_rgba(0,0,0,0.12)]">
         <textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => updateText(e.target.value)}
+          onPaste={() => {
+            pasteRef.current = true;
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();

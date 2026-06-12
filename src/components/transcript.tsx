@@ -37,10 +37,7 @@ export function Transcript({ messages }: { messages: TranscriptMessage[] }) {
           transition={{ ...MESSAGE_SPRING, delay: 0.2 }}
           className="text-center select-none"
         >
-          <div className="font-heading text-base font-bold tracking-[0.45em] text-zinc-300 uppercase">
-            Oscar
-          </div>
-          <p className="mt-1.5 font-mono text-[10px] tracking-wide text-zinc-400">
+          <p className="font-mono text-[10px] tracking-wide text-zinc-400">
             starts working before you hit send
           </p>
         </motion.div>

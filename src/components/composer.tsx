@@ -2,15 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import {
-  ArrowUp,
-  ChevronDown,
-  FolderGit2,
-  GitBranch,
-} from "lucide-react";
+import { ArrowUp, FolderGit2, GitBranch } from "lucide-react";
+import { MiniSelect } from "@/components/custom/mini-select";
 import { Notch, type NotchItem } from "@/components/custom/notch";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { useObservability } from "@/lib/observability/context";
 import { replayMockRun } from "@/lib/observability/mock-events";
 import {
@@ -27,91 +22,6 @@ const ACCENT = "#3b82f6";
 
 type GitSelectId = "repo" | "branch";
 
-function MiniSelect({
-  id,
-  icon,
-  value,
-  options,
-  openId,
-  onOpen,
-  onSelect,
-}: {
-  id: GitSelectId;
-  icon: React.ReactNode;
-  value: string;
-  options: { id: string; label: string }[];
-  openId: GitSelectId | null;
-  onOpen: (id: GitSelectId | null) => void;
-  onSelect: (optionId: string) => void;
-}) {
-  const open = openId === id;
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => onOpen(open ? null : id)}
-        className={cn(
-          "flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors",
-          open
-            ? "bg-zinc-200/80 text-zinc-800"
-            : "text-zinc-500 hover:bg-zinc-200/60 hover:text-zinc-800",
-        )}
-      >
-        <span className="opacity-70 [&_svg]:size-2.5">{icon}</span>
-        <span>{value}</span>
-        <ChevronDown
-          className={cn(
-            "size-2.5 opacity-50 transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-      <AnimatePresence>
-        {open ? (
-          <motion.ul
-            role="listbox"
-            initial={{ opacity: 0, y: 4, filter: "blur(3px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={{ opacity: 0, y: 4, filter: "blur(3px)" }}
-            transition={{ type: "spring", stiffness: 420, damping: 30 }}
-            className="absolute bottom-full left-0 z-50 mb-1.5 w-max min-w-32 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-[0_10px_28px_-10px_rgba(0,0,0,0.25)]"
-          >
-            {options.map((option) => {
-              const active = option.id === value;
-              return (
-                <li key={option.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    onClick={() => onSelect(option.id)}
-                    className={cn(
-                      "flex w-full items-center justify-between gap-4 px-2.5 py-1 text-left font-mono text-[10px] transition-colors",
-                      active
-                        ? "text-zinc-900"
-                        : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900",
-                    )}
-                  >
-                    <span>{option.label}</span>
-                    {active ? (
-                      <span
-                        className="size-1 rounded-full"
-                        style={{ background: ACCENT }}
-                      />
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-          </motion.ul>
-        ) : null}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 export function Composer({ onSend }: { onSend: (text: string) => void }) {
   const { pushEvent } = useObservability();
   const [text, setText] = useState("");
@@ -123,26 +33,9 @@ export function Composer({ onSend }: { onSend: (text: string) => void }) {
   const [repoId, setRepoId] = useState<string>(REPOS[0].id);
   const [branch, setBranch] = useState<string>(REPOS[0].defaultBranch);
   const [gitOpen, setGitOpen] = useState<GitSelectId | null>(null);
-  const gitRowRef = useRef<HTMLDivElement>(null);
 
   const cancelRunRef = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelRunRef.current?.(), []);
-
-  useEffect(() => {
-    if (!gitOpen) return;
-    function onPointerDown(e: PointerEvent) {
-      if (!gitRowRef.current?.contains(e.target as Node)) setGitOpen(null);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setGitOpen(null);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [gitOpen]);
 
   const repo = REPOS.find((r) => r.id === repoId) ?? REPOS[0];
 
@@ -239,15 +132,15 @@ export function Composer({ onSend }: { onSend: (text: string) => void }) {
       </div>
 
       {/* Thin under-card extending from beneath the composer. */}
-      <div className="mx-4 flex items-center justify-between rounded-b-lg border border-t-0 border-zinc-200/80 bg-zinc-100/90 px-1.5 py-0.5">
-        <div ref={gitRowRef} className="flex items-center gap-0.5">
+      <div className="mx-4 flex h-8 items-center justify-between rounded-b-lg border border-t-0 border-zinc-200/80 bg-zinc-100/90 px-1.5">
+        <div className="flex items-center gap-0.5">
           <MiniSelect
-            id="repo"
             icon={<FolderGit2 />}
-            value={repo.label}
+            display={repo.label}
+            value={repoId}
             options={REPOS.map((r) => ({ id: r.id, label: r.label }))}
-            openId={gitOpen}
-            onOpen={setGitOpen}
+            open={gitOpen === "repo"}
+            onOpenChange={(open) => setGitOpen(open ? "repo" : null)}
             onSelect={(id) => {
               const next = REPOS.find((r) => r.id === id);
               if (!next) return;
@@ -259,12 +152,12 @@ export function Composer({ onSend }: { onSend: (text: string) => void }) {
           />
           <span className="font-mono text-[10px] text-zinc-300">:</span>
           <MiniSelect
-            id="branch"
             icon={<GitBranch />}
+            display={branch}
             value={branch}
             options={repo.branches.map((b) => ({ id: b, label: b }))}
-            openId={gitOpen}
-            onOpen={setGitOpen}
+            open={gitOpen === "branch"}
+            onOpenChange={(open) => setGitOpen(open ? "branch" : null)}
             onSelect={(id) => {
               setBranch(id);
               setGitOpen(null);

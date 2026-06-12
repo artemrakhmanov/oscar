@@ -37,6 +37,8 @@ export interface NotchProps {
   items: NotchItem[];
   /** Float fixed to the viewport edge (default) or render in normal flow. */
   floating?: boolean;
+  /** Drop the shell background/border while closed; restore them when open. */
+  bare?: boolean;
   /** Controlled open group id. Pass `null` for closed. */
   openItemId?: string | null;
   /** Fires when the open group changes (open or close). */
@@ -106,6 +108,7 @@ function NotchDivider() {
 export const Notch = ({
   items,
   floating = true,
+  bare = false,
   openItemId: controlledOpenItemId,
   onOpenChange,
   position = "bottom",
@@ -320,7 +323,10 @@ export const Notch = ({
         animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
         transition={SHELL_SPRING}
         className={cn(
-          "pointer-events-auto flex w-fit flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/95 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.22)] ring-1 ring-zinc-100 backdrop-blur-2xl ring-inset",
+          "pointer-events-auto flex w-fit flex-col overflow-hidden rounded-xl border ring-1 ring-inset transition-[background-color,border-color,box-shadow] duration-200",
+          bare && !openItem
+            ? "border-transparent bg-transparent ring-transparent"
+            : "border-zinc-200 bg-white/95 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.22)] ring-zinc-100 backdrop-blur-2xl",
           className,
         )}
       >

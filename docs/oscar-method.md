@@ -33,7 +33,13 @@ type Ledger = {
 }
 ```
 
-**Evidence anchoring is the load-bearing trick.** Every item carries a verbatim quote from the prompt. The client locates the quote in the text (`indexOf`, fuzzy fallback) to get a span. That span is what makes deletion semantics computable: when text is deleted, we know *exactly* which judgements lost their justification — locally, instantly, before any model call.
+**Evidence anchoring is the load-bearing trick.** Every item carries a verbatim quote from the prompt. The client locates the quote in the text to get a span. That span is what makes deletion semantics computable: when text is deleted, we know *exactly* which judgements lost their justification — locally, instantly, before any model call.
+
+Anchoring rules that matter in practice:
+
+- **Quotes must be ≥ 4 words** (prompt rule) — short quotes ("the API") recur and anchor ambiguously.
+- **Disambiguate duplicates by proximity:** when a quote occurs more than once, pick the occurrence nearest the item's previous anchor (or the changed window, for new items) — never blindly `indexOf`.
+- **Fuzzy fallback, then null:** exact match → case/whitespace-insensitive match → `anchor: null`. A null anchor renders normally but is exempt from optimistic invalidation; the next incremental pass re-grounds it.
 
 ## Edit classification (pure code, no model)
 
@@ -91,6 +97,8 @@ type ScoutVerdict = {
 
 `contradicts` is the scout's second job: it sees the ledger digest next to the new text, so it can spot that an append clashes with an existing judgement even when the gate keywords didn't fire. A non-empty `contradicts` forces an incremental run (never `wait`) and is passed into the analysis prompt alongside `hint`, so the main model knows which items to re-examine first.
 
+**Ordering:** consults are tagged with a monotonic sequence number; a verdict is discarded if a newer consult has been dispatched by the time it arrives. At most one scout request in flight — the gate coalesces triggers that land while one is pending.
+
 The scout is what makes the harness feel intelligent rather than timer-driven: it can say "user is mid-sentence, wait" (trailing comma, dangling conjunction), "this append only touches scope", or "this rewrite changed the actual objective — go full". Its `reason` string streams into the UI as a status line under the drawer — the visible heartbeat of the always-on agent.
 
 **The scout advises; code decides.** Local rules can override it and act as fallback when it's slow or down:
@@ -140,7 +148,25 @@ The model never returns "the analysis" — it returns **operations against the l
 
 - `full` mode is just the degenerate case: every operation is an `add` against an empty ledger. One contract, one schema, one client code path.
 - The workflow step runs `streamObject` with this schema; operations stream in one by one and the client **reducer** applies each to the ledger as it lands. Items pop, grey, or firm up individually — no drawer-wide repaint, ever.
-- The reducer ignores ops referencing unknown ids and drops ops arriving from a stale revision (guard: each run is tagged with the revision it analyzed).
+
+### Reducer rules
+
+These make the streaming contract safe to apply mid-flight:
+
+- **Apply only completed ops.** A partially-streamed trailing operation (op type present, `content` half-emitted) is held until the next array element begins or the stream finishes — validate each op against the op zod schema before applying. Never render half an item.
+- **Silence is implicit confirm.** Unmentioned items keep their state. Explicit `confirm` is reserved for items the run was *asked* to re-examine (the `contradicts`/`hint` lists) that survived — it flips them `stale → confirmed`. This keeps incremental outputs tiny: the model emits only deltas.
+- **Id discipline.** The model assigns short ids on `add` (`amb-2`, `cons-1`); the incremental digest lists every item's id so it can reference them. If an `add` arrives with an existing id, treat it as `revise` (models do this). Ops with unknown ids are dropped and dev-logged.
+- **Caps are enforced twice.** "Max 4 active items per dimension" is a prompt rule *and* a reducer backstop (evict oldest non-confirmed item) — incremental adds accumulate across revisions, so the prompt rule alone will drift past the cap.
+- **Stale-revision guard.** Every run is tagged with the revision it analyzed; ops from a superseded run are dropped.
+
+### Revision lifecycle (aborted runs)
+
+Partial application is safe *because each op is self-contained* — but the bookkeeping needs one rule. When a run is dispatched, the harness snapshots the text it sent. Items the diff marked affected go `stale`. Then:
+
+- **Stream completes:** `analyzedText`/`revision` commit to the snapshot; remaining `stale` items affected by the diff resolve per the silence-is-confirm rule.
+- **User resumes typing (abort):** ops already applied stay applied; `analyzedText` still commits to the snapshot (those ops did examine that text), but items the run never reached remain `stale`. The trigger gate's idle backstop guarantees a follow-up consult, so a stale ledger always self-heals within ~2s of the user stopping.
+
+The invariant worth testing: **the ledger never mixes judgements with statuses that misrepresent what has been examined** — anything uncertain is visibly `stale`, never silently presented as current.
 
 ### Prompt templates (`src/lib/oscar/prompts.ts`)
 
@@ -199,6 +225,8 @@ Prompt rule for task generation: *write the dispatch verbatim, second person, se
 
 The UI renders these as a **dispatch queue** beneath the drawer — queued cards with role badges and a pulsing "would dispatch on send" state. Tasks are ledger-coupled: when the item that triggered a task is removed or resolved, its card is cancelled (struck through, fades) — the queue visibly reshapes as the prompt converges, which *is* the preloading-magic demo.
 
+**Incremental semantics** (tasks follow the same delta discipline as ops): in incremental mode the model emits `agentTasks` *only* for items it added or revised in this run — never a full task list. The reducer keys tasks by `triggeredBy`: a task for a revised item replaces that item's existing task; `remove`-ing an item cancels its task; everything else is untouched. No model output is needed for cancellation — it falls out of the ledger ops.
+
 ### Demo fixtures (`src/lib/oscar/fixtures.ts`)
 
 Live generation can flake on stage. For the scripted demo, keep canned ledgers + agent tasks for 2–3 rehearsed prompts, keyed by text hash. When the composer text matches a fixture hash, the harness replays the fixture through the same reducer with realistic stagger timings instead of calling the API. Same rendering path, zero live risk, and the demo can run offline. A visible dev toggle (`live | fixtures`) keeps us honest.
@@ -220,6 +248,13 @@ resumed typing → abort fetch, mark in-flight revision stale; ledger keeps last
 
 Cost picture: scout calls track thought boundaries (a typical sentence triggers 2–4 consults, not one per keystroke) + at most one mini analysis per pause, often skipped or scoped down by the verdict — strictly cheaper and far calmer than naive full re-analysis on every pause.
 
+## Implementation risks — spike these first
+
+Two assumptions in this design are unverified and sit on the critical path. Both have cheap fallbacks; find out in hour one, not hour ten.
+
+1. **`run.readable` ↔ `useObject` framing.** `useObject` expects the byte-for-byte text stream that `streamObject`'s `toTextStreamResponse()` produces. We interpose the workflow stream: step writes chunks to `getWritable()`, client reads `run.readable`. If the workflow stream preserves chunks verbatim, `useObject` just works; if it adds any framing or re-encodes chunks, it breaks. **Spike:** hello-world workflow piping a `streamObject` `textStream` through, pointed at `useObject`. **Fallback (small, known-good):** drop `useObject`, consume `response.body` with a reader and parse accumulated text with `parsePartialJson` from `ai` — the reducer doesn't care which path feeds it.
+2. **`start()` overhead per pause.** Starting a durable run costs more than invoking a handler (queue + persistence; Redis-backed streams on Vercel, filesystem locally). If it adds ~100ms that's invisible; if it adds ~1s the live feel dies. **Spike:** measure time-to-first-chunk, workflow vs direct handler. **Fallback:** keep the workflow for resilience but acknowledge the latency in demo pacing — or front-run perceived latency with the scout's `reason` line, which arrives much earlier.
+
 ## Failure semantics
 
 - **Scout down/slow:** raced with a 250ms timeout; local rules decide. Scout is an optimization, never a dependency.
@@ -229,7 +264,8 @@ Cost picture: scout calls track thought boundaries (a typical sentence triggers 
 
 ## Build order (replaces steps 2–3 in tech-spec)
 
-1. Ledger + reducer + diff classifier as pure functions — **unit-testable without any UI or API**. This is the highest-risk logic; build it first.
+0. The two spikes above — half a day of risk retired before anything depends on the answers.
+1. Ledger + reducer + diff classifier as pure functions — **unit-testable without any UI or API**. This is the highest-risk logic; build it first. Test fixtures to write alongside: append-extends, append-contradicts, delete-overlapping-anchor, delete-non-overlapping, replace-clause, duplicate-quote disambiguation, abort-mid-stream lifecycle.
 2. `oscarWorkflow` full mode end-to-end: ops stream → reducer → panels fill.
 3. Incremental mode: prompt template, diff rendering, append/delete demos working.
 4. Scout route + harness decision rules; wire the `reason` status line.

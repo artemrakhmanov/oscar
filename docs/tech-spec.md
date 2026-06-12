@@ -65,7 +65,7 @@ The scout endpoint (`POST /api/oscar/scout`) is deliberately *not* a workflow �
 What durability buys us:
 
 - **Step retries** — a flaked LLM call re-runs automatically instead of blanking the drawer (this also softens the single-call trade-off above: the one failure mode now self-heals).
-- **Resumable streams** — if the client connection drops, it can reconnect to the same run via `run.getReadable({ startIndex })` instead of re-paying for the analysis.
+- **Resumable streams** — if the client connection drops, it can reconnect to the same run instead of re-paying for the analysis. Note this isn't free: the client only holds a fetch, so the POST must expose the run id (e.g. an `X-Oscar-Run-Id` response header) and a small `GET /api/oscar/runs/[runId]?startIndex=n` handler must call `getRun()` + `run.getReadable({ startIndex })`. Build it only if time allows — until then resumability is a *capability*, not a feature.
 - **Observability** — every analysis run is inspectable (`npx workflow web`), which during a hackathon doubles as the debugging story.
 
 Constraints to respect: streams can only be touched inside `'use step'` functions (never in the workflow body), and the writer must `releaseLock()` or the HTTP response hangs. Setup: `npm i workflow`, wrap `next.config.ts` with `withWorkflow()` from `workflow/next`.
@@ -138,6 +138,7 @@ Per `node_modules/next/dist/docs/` — read the relevant guide before coding. Hi
 
 ## Build order
 
+0. Spikes: `run.readable` ↔ `useObject` framing compatibility; `start()` time-to-first-chunk (see [oscar-method.md](./oscar-method.md) § Implementation risks).
 1. Static shell: composer + transcript + empty drawer with five panels (pure UI, no API).
 2. Ledger + reducer + diff classifier as pure functions — unit-tested before any API exists.
 3. `oscarWorkflow` full mode end-to-end: ops stream → reducer → panels fill.
